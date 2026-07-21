@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rarity Stack — MTG Print Sheet</title>
+<style>
+  :root{
+    --ink:#161311;
+    --parchment:#efe7d8;
+    --parchment-deep:#e2d6bd;
+    --line:#c9b98f;
+    --mythic:#c9822a;
+    --rare:#a8a49a;
+    --uncommon:#7f95a3;
+    --accent:#8a2f24;
+    --panel:#faf6ec;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 10% -10%, #fbf3de 0%, transparent 60%),
+      var(--parchment);
+    color:var(--ink);
+    font-family: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    min-height:100vh;
+  }
+  .wrap{
+    max-width:960px;
+    margin:0 auto;
+    padding:40px 24px 80px;
+  }
+  header{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:14px;
+    margin-bottom:8px;
+  }
+  h1{
+    font-size:28px;
+    letter-spacing:0.02em;
+    margin:0;
+    font-weight:700;
+  }
+  h1 small{
+    display:block;
+    font-family: "Trebuchet MS", sans-serif;
+    font-size:11px;
+    letter-spacing:0.22em;
+    text-transform:uppercase;
+    color:var(--accent);
+    font-weight:600;
+    margin-bottom:4px;
+  }
+  .tagline{
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:12px;
+    color:#5c5648;
+    letter-spacing:0.03em;
+  }
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    box-shadow: 0 1px 0 var(--line), 0 8px 24px -18px rgba(0,0,0,0.4);
+    border-radius:2px;
+    padding:22px 24px 24px;
+    margin-top:22px;
+  }
+  .panel h2{
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.18em;
+    color:#6b6152;
+    margin:0 0 16px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .panel h2::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background:var(--line);
+  }
+
+  .rarity-group{margin-bottom:16px;}
+  .rarity-group:last-child{margin-bottom:0;}
+  .rarity-label{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:11px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    margin-bottom:8px;
+  }
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
+  .dot.m{background:var(--mythic);}
+  .dot.r{background:var(--rare);}
+  .dot.u{background:var(--uncommon);}
+
+  .row-inputs{display:grid;gap:10px;}
+  .row-inputs.cols-1{grid-template-columns:1fr;}
+  .row-inputs.cols-2{grid-template-columns:1fr 1fr;}
+  .row-inputs.cols-3{grid-template-columns:1fr 1fr 1fr;}
+
+  input[type=text]{
+    width:100%;
+    padding:9px 11px;
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:13.5px;
+    border:1px solid var(--line);
+    background:#fffdf7;
+    color:var(--ink);
+    border-radius:2px;
+    outline:none;
+  }
+  input[type=text]:focus{
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(138,47,36,0.12);
+  }
+  .field-status{
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:10.5px;
+    margin-top:4px;
+    min-height:13px;
+    color:#7a7364;
+  }
+  .field-status.ok{color:#2f6a3f;}
+  .field-status.err{color:var(--accent);}
+
+  .actions{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    margin-top:20px;
+    flex-wrap:wrap;
+  }
+  button{
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:12.5px;
+    font-weight:700;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    padding:11px 20px;
+    border-radius:2px;
+    border:1px solid var(--ink);
+    cursor:pointer;
+    transition:transform .08s ease;
+  }
+  button:active{transform:translateY(1px);}
+  button:disabled{opacity:0.45;cursor:not-allowed;}
+  #fetchBtn{background:var(--ink);color:var(--parchment);}
+  #fetchBtn:hover:not(:disabled){background:#2a2420;}
+  #printBtn{background:var(--panel);color:var(--ink);}
+  #printBtn:hover:not(:disabled){background:var(--parchment-deep);}
+
+  .status-line{
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:12px;
+    color:#6b6152;
+    margin-left:auto;
+  }
+
+  /* ---- Sheet ---- */
+  #sheetSection{margin-top:32px;}
+  #sheetSection.hidden{display:none;}
+  .sheet-heading{
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.18em;
+    color:#6b6152;
+    margin-bottom:12px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .sheet-heading::after{content:"";flex:1;height:1px;background:var(--line);}
+
+  #sheet{
+    background:#fff;
+    border:1px solid var(--line);
+    padding:14mm 10mm;
+    box-shadow:0 10px 30px -18px rgba(0,0,0,0.5);
+  }
+  .card-row{
+    display:flex;
+    justify-content:center;
+    gap:6mm;
+    margin-bottom:6mm;
+  }
+  .card-row:last-child{margin-bottom:0;}
+  .card-slot{
+    width:63mm;
+    height:88mm;
+    border-radius:3.2mm;
+    overflow:hidden;
+    background:#e9e4d6;
+    border:0.3mm solid #cfc7b2;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    flex:0 0 auto;
+  }
+  .card-slot img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  .card-slot .placeholder{
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:9px;
+    text-align:center;
+    color:#8a8371;
+    padding:6mm;
+    line-height:1.4;
+  }
+  footer{
+    margin-top:34px;
+    font-family:"Trebuchet MS", sans-serif;
+    font-size:10.5px;
+    color:#8a8371;
+    text-align:center;
+  }
+  footer a{color:var(--accent);}
+
+  @media (max-width:640px){
+    .row-inputs.cols-2, .row-inputs.cols-3{grid-template-columns:1fr;}
+  }
+
+  /* ---- Print ---- */
+  @page{
+    size:A4;
+    margin:0;
+  }
+  @media print{
+    body{background:#fff;}
+    header, .panel, .sheet-heading, footer, .actions, .status-line{display:none !important;}
+    .wrap{max-width:none;padding:0;margin:0;}
+    #sheetSection{margin:0;}
+    #sheet{
+      border:none;
+      box-shadow:none;
+      padding:14mm 10mm;
+      width:210mm;
+      min-height:297mm;
+      margin:0 auto;
+    }
+    .card-slot{background:#fff;border-color:#ddd;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1><small>Pyramid Pauper Highlander</small>Pyramid Sheet Generator</h1>
+    </div>
+    <div class="tagline">1 mythic · 2 rares · 3 uncommons</div>
+  </header>
+
+  <div class="panel">
+    <h2>Card Names</h2>
+
+    <div class="rarity-group">
+      <div class="rarity-label"><span class="dot m"></span> Mythic Rare</div>
+      <div class="row-inputs cols-1">
+        <div>
+          <input type="text" id="m1" placeholder="e.g. Ragavan, Nimble Pilferer" autocomplete="off">
+          <div class="field-status" id="m1-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rarity-group">
+      <div class="rarity-label"><span class="dot r"></span> Rares</div>
+      <div class="row-inputs cols-2">
+        <div>
+          <input type="text" id="r1" placeholder="Rare card 1" autocomplete="off">
+          <div class="field-status" id="r1-status"></div>
+        </div>
+        <div>
+          <input type="text" id="r2" placeholder="Rare card 2" autocomplete="off">
+          <div class="field-status" id="r2-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rarity-group">
+      <div class="rarity-label"><span class="dot u"></span> Uncommons</div>
+      <div class="row-inputs cols-3">
+        <div>
+          <input type="text" id="u1" placeholder="Uncommon card 1" autocomplete="off">
+          <div class="field-status" id="u1-status"></div>
+        </div>
+        <div>
+          <input type="text" id="u2" placeholder="Uncommon card 2" autocomplete="off">
+          <div class="field-status" id="u2-status"></div>
+        </div>
+        <div>
+          <input type="text" id="u3" placeholder="Uncommon card 3" autocomplete="off">
+          <div class="field-status" id="u3-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="fetchBtn">Fetch Cards</button>
+      <button id="printBtn" disabled>Print / Save as PDF</button>
+      <span class="status-line" id="globalStatus"></span>
+    </div>
+  </div>
+
+  <div id="sheetSection" class="hidden">
+    <div class="sheet-heading">Sheet Preview</div>
+    <div id="sheet">
+      <div class="card-row" id="rowMythic"></div>
+      <div class="card-row" id="rowRares"></div>
+      <div class="card-row" id="rowUncommons"></div>
+    </div>
+  </div>
+
+  <footer>
+    Card data and images via <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>. Not affiliated with or endorsed by Wizards of the Coast.
+  </footer>
+</div>
+
+<script>
+const SLOTS = [
+  { id:'m1', rarity:'m', label:'Mythic', row:'rowMythic' },
+  { id:'r1', rarity:'r', label:'Rare',   row:'rowRares' },
+  { id:'r2', rarity:'r', label:'Rare',   row:'rowRares' },
+  { id:'u1', rarity:'u', label:'Uncommon', row:'rowUncommons' },
+  { id:'u2', rarity:'u', label:'Uncommon', row:'rowUncommons' },
+  { id:'u3', rarity:'u', label:'Uncommon', row:'rowUncommons' },
+];
+
+const fetchBtn = document.getElementById('fetchBtn');
+const printBtn = document.getElementById('printBtn');
+const globalStatus = document.getElementById('globalStatus');
+const sheetSection = document.getElementById('sheetSection');
+
+function setFieldStatus(id, text, kind){
+  const el = document.getElementById(id + '-status');
+  el.textContent = text;
+  el.className = 'field-status' + (kind ? ' ' + kind : '');
+}
+
+async function fetchCard(name, rarity){
+  // Exact-name search scoped to a specific rarity printing, excluding
+  // online-only cards, Secret Lair reprints, promos, judge promos, and
+  // silver-border/funny cards (Pyramid Pauper Highlander legality filters).
+  const exclusions = 'game:paper (-set:sld OR (set:sld -is:reprint)) -s:slx -is:extra -is:promo -is:judge -is:funny -border:silver -stamp:acorn';
+  const query = `!"${name.trim()}" r:${rarity} ${exclusions}`;
+  const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&order=released&unique=prints`;
+  const res = await fetch(url);
+  if(res.status === 404){
+    throw new Error(`No printing of "${name}" found at that rarity`);
+  }
+  if(!res.ok){
+    throw new Error(`Scryfall error (${res.status})`);
+  }
+  const data = await res.json();
+  const card = data.data && data.data[0];
+  if(!card){
+    throw new Error(`No printing of "${name}" found at that rarity`);
+  }
+  // Handle double-faced cards: use front face image if top-level image_uris missing.
+  let imageUrl = null;
+  if(card.image_uris && card.image_uris.png){
+    imageUrl = card.image_uris.png;
+  } else if(card.card_faces && card.card_faces[0] && card.card_faces[0].image_uris){
+    imageUrl = card.card_faces[0].image_uris.png;
+  }
+  if(!imageUrl){
+    throw new Error(`No image available for "${name}"`);
+  }
+  return { name: card.name, imageUrl, set: card.set.toUpperCase() };
+}
+
+function clearSheet(){
+  ['rowMythic','rowRares','rowUncommons'].forEach(id => {
+    document.getElementById(id).innerHTML = '';
+  });
+}
+
+function renderSlot(rowId, label, result, errorText){
+  const row = document.getElementById(rowId);
+  const slot = document.createElement('div');
+  slot.className = 'card-slot';
+  if(result){
+    const img = document.createElement('img');
+    img.src = result.imageUrl;
+    img.alt = result.name;
+    slot.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'placeholder';
+    ph.textContent = errorText || 'Not found';
+    slot.appendChild(ph);
+  }
+  row.appendChild(slot);
+}
+
+async function handleFetchAll(){
+  fetchBtn.disabled = true;
+  printBtn.disabled = true;
+  globalStatus.textContent = 'Fetching…';
+  clearSheet();
+  sheetSection.classList.remove('hidden');
+
+  let allOk = true;
+
+  for(const slot of SLOTS){
+    const input = document.getElementById(slot.id);
+    const name = input.value.trim();
+    if(!name){
+      setFieldStatus(slot.id, 'Enter a card name', 'err');
+      renderSlot(slot.row, slot.label, null, 'No name entered');
+      allOk = false;
+      continue;
+    }
+    setFieldStatus(slot.id, 'Looking up…');
+    try{
+      const result = await fetchCard(name, slot.rarity);
+      setFieldStatus(slot.id, `Found: ${result.name} (${result.set})`, 'ok');
+      renderSlot(slot.row, slot.label, result);
+    } catch(err){
+      setFieldStatus(slot.id, err.message, 'err');
+      renderSlot(slot.row, slot.label, null, err.message);
+      allOk = false;
+    }
+  }
+
+  globalStatus.textContent = allOk ? 'All cards loaded.' : 'Some cards could not be found — check the messages above.';
+  fetchBtn.disabled = false;
+  printBtn.disabled = !allOk;
+}
+
+fetchBtn.addEventListener('click', handleFetchAll);
+printBtn.addEventListener('click', () => window.print());
+</script>
+</body>
+</html>
