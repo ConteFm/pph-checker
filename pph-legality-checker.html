@@ -229,6 +229,20 @@
 
   function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
 
+  // Wrapper around fetch that respects Scryfall's rate limiting: on a 429
+  // (or a transient 5xx), wait and retry with backoff instead of giving up.
+  async function scryfallFetch(url, attempt){
+    attempt = attempt || 0;
+    const resp = await fetch(url);
+    if ((resp.status === 429 || resp.status >= 500) && attempt < 4){
+      const retryAfterHeader = parseFloat(resp.headers.get('Retry-After'));
+      const waitMs = !isNaN(retryAfterHeader) ? retryAfterHeader * 1000 : 400 * Math.pow(2, attempt);
+      await sleep(waitMs);
+      return scryfallFetch(url, attempt + 1);
+    }
+    return resp;
+  }
+
   function showError(msg){
     errorBox.textContent = msg;
     errorBox.style.display = 'block';
@@ -297,30 +311,55 @@
     return best;
   }
 
-  async function fetchLowestPrinting(name){
+  function normalizeName(name){
+    return name
+      .replace(/[\u2018\u2019]/g, "'")   // curly single quotes -> straight
+      .replace(/[\u201C\u201D]/g, '"')   // curly double quotes -> straight
+      .replace(/[\u2013\u2014]/g, '-')   // en/em dash -> hyphen
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  async function safeErrorDetail(resp){
     try {
-      const searchUrl = 'https://api.scryfall.com/cards/search?q=' +
-        encodeURIComponent('!"' + name + '"') + '&unique=prints&order=released';
-      let resp = await fetch(searchUrl);
-      let data = null;
+      const body = await resp.json();
+      return body && body.details ? body.details : null;
+    } catch (e){ return null; }
+  }
 
-      if (resp.ok){
-        data = await resp.json();
-      } else {
-        // Fallback for split/MDFC names or minor spelling drift: fuzzy-resolve
-        // the card, then pull every printing from its own prints_search_uri.
-        const namedResp = await fetch('https://api.scryfall.com/cards/named?fuzzy=' + encodeURIComponent(name));
-        if (!namedResp.ok) return { error: 'not_found' };
-        const namedCard = await namedResp.json();
-        await sleep(60);
-        const printsResp = await fetch(namedCard.prints_search_uri);
-        if (!printsResp.ok) return { error: 'not_found' };
-        data = await printsResp.json();
-      }
+  async function resolveCard(name){
+    // Fuzzy match first — this is Scryfall's own recommended way to resolve
+    // arbitrary user-typed names, and tolerates the punctuation drift
+    // (curly quotes, spacing) and split/adventure full names that the
+    // strict exact-name search chokes on.
+    let resp = await scryfallFetch('https://api.scryfall.com/cards/named?fuzzy=' + encodeURIComponent(name));
+    if (resp.ok) return { card: await resp.json() };
+    const fuzzyDetail = await safeErrorDetail(resp);
 
-      if (!data || !data.data || data.data.length === 0) return { error: 'not_found' };
+    await sleep(120);
+
+    // Exact-name fallback, for the rare case fuzzy matching gets confused.
+    resp = await scryfallFetch('https://api.scryfall.com/cards/named?exact=' + encodeURIComponent(name));
+    if (resp.ok) return { card: await resp.json() };
+    const exactDetail = await safeErrorDetail(resp);
+
+    return { error: 'not_found', reason: fuzzyDetail || exactDetail || 'No card matched this name on Scryfall.' };
+  }
+
+  async function fetchLowestPrinting(rawName){
+    const name = normalizeName(rawName);
+    try {
+      const resolved = await resolveCard(name);
+      if (resolved.error) return resolved;
+
+      await sleep(120);
+      const printsResp = await scryfallFetch(resolved.card.prints_search_uri);
+      if (!printsResp.ok) return { error: 'api_error', reason: 'Could not load printings (status ' + printsResp.status + ').' };
+      const data = await printsResp.json();
+
+      if (!data || !data.data || data.data.length === 0) return { error: 'not_found', reason: 'No printings returned.' };
       const best = pickLowestPrinting(data.data);
-      if (!best) return { error: 'not_found' };
+      if (!best) return { error: 'not_found', reason: 'No usable printings.' };
 
       return {
         rarity: best.card.rarity,
@@ -329,7 +368,7 @@
         scryfallName: best.card.name
       };
     } catch (e){
-      return { error: 'network_error' };
+      return { error: 'network_error', reason: (e && e.message) || 'Network error.' };
     }
   }
 
@@ -380,6 +419,23 @@
       return;
     }
 
+    checkBtn.disabled = true;
+    progressText.textContent = 'Checking connection to Scryfall…';
+
+    // Fail fast with a clear diagnosis instead of quietly marking every
+    // card "not found" when the real problem is that the browser is
+    // blocking the request entirely (most commonly: this file was opened
+    // directly as file:// instead of served over http/https).
+    try {
+      const probe = await scryfallFetch('https://api.scryfall.com/cards/named?exact=Mountain');
+      if (!probe.ok) throw new Error('status ' + probe.status);
+    } catch (e){
+      checkBtn.disabled = false;
+      progressText.textContent = '';
+      showError('Couldn\'t reach Scryfall at all (every lookup would fail the same way, not just specific cards). This usually means the page was opened directly as a local file. Serve it over http:// instead — e.g. run a local server ("python3 -m http.server" in this file\'s folder) or host it on GitHub Pages — then try again. Browser console error: ' + (e && e.message ? e.message : 'unknown'));
+      return;
+    }
+
     const entries = Array.from(main.values());
     const totalCards = entries.reduce((s, e) => s + e.qty, 0);
 
@@ -391,9 +447,9 @@
       progressText.textContent = 'Checking ' + (i + 1) + ' of ' + entries.length + ' cards…';
       const entry = entries[i];
       const r = await fetchLowestPrinting(entry.name);
-      if (r.error) notFound.push(entry.name);
+      if (r.error) notFound.push({ name: entry.name, reason: r.reason || r.error });
       else results.push(Object.assign({}, entry, r));
-      await sleep(80);
+      await sleep(150);
     }
 
     progressText.textContent = '';
@@ -443,7 +499,7 @@
     let cleanDetail = 'No banned cards, unrecognized cards, or singleton violations.';
     const problems = [];
     if (s.banned.length) problems.push('banned: ' + s.banned.map(c => c.name).join(', '));
-    if (s.notFound.length) problems.push('not found on Scryfall: ' + s.notFound.join(', '));
+    if (s.notFound.length) problems.push('not found on Scryfall: ' + s.notFound.map(n => n.name).join(', '));
     if (s.nonSingleton.length) problems.push('more than one copy of a non-common: ' + s.nonSingleton.map(c => c.name + ' ×' + c.qty).join(', '));
     if (problems.length) cleanDetail = problems.join(' — ');
     addCriterion(s.cleanOk, 'No banned, unrecognized, or non-singleton cards', cleanDetail);
@@ -461,9 +517,10 @@
         '<td><span class="rarity-tag"><span class="gem ' + rarityClass(r.rarity) + '"></span>' + r.rarity + '</span></td>';
       breakdownBody.appendChild(tr);
     }
-    for (const name of s.notFound){
+    for (const item of s.notFound){
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + escapeHtml(name) + '</td><td>—</td><td style="color:var(--bad);">not found</td>';
+      tr.innerHTML = '<td>' + escapeHtml(item.name) + '</td><td>—</td>' +
+        '<td style="color:var(--bad);" title="' + escapeHtml(item.reason || '') + '">not found — ' + escapeHtml(item.reason || 'unknown reason') + '</td>';
       breakdownBody.appendChild(tr);
     }
     breakdownSummary.textContent = 'Card-by-card rarity breakdown (' + s.results.length + ' card' + (s.results.length === 1 ? '' : 's') + ')';
