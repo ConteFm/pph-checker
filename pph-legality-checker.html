@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PPH — Deck Legality Checker</title>
+<style>
+  :root{
+    --bg:#14120F;
+    --panel:#1D1A15;
+    --panel-border:#332C21;
+    --text:#EDE6D6;
+    --text-dim:#A99C84;
+    --accent:#D8551D;
+    --accent-dim:#93381A;
+    --mythic:#D8551D;
+    --rare:#C9A227;
+    --uncommon:#9FB8C9;
+    --common:#726A5A;
+    --good:#5C9468;
+    --good-bg:#1B2A1D;
+    --bad:#C15B4E;
+    --bad-bg:#2A1917;
+    --serif: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    line-height:1.5;
+    padding:48px 20px 80px;
+  }
+  #app{max-width:640px;margin:0 auto;}
+
+  .hero{display:flex;align-items:center;gap:22px;margin-bottom:8px;}
+  .gem-stack{display:flex;flex-direction:column;align-items:center;gap:5px;flex:0 0 auto;}
+  .gem-row{display:flex;gap:5px;}
+  .gem{width:9px;height:9px;border-radius:50%;}
+  .gem.myth{background:var(--mythic);}
+  .gem.rare{background:var(--rare);}
+  .gem.unc{background:var(--uncommon);}
+
+  h1{font-family:var(--serif);font-size:2rem;font-weight:600;margin:0;letter-spacing:0.2px;}
+  .subtitle{color:var(--text-dim);font-size:0.95rem;margin:4px 0 0;}
+
+  .lede{color:var(--text-dim);font-size:0.92rem;margin:22px 0 28px;max-width:56ch;}
+
+  label{display:block;font-size:0.85rem;color:var(--text-dim);margin-bottom:6px;}
+
+  textarea{
+    width:100%;
+    min-height:220px;
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    color:var(--text);
+    font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size:0.88rem;
+    border-radius:6px;
+    padding:14px;
+    resize:vertical;
+  }
+  textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
+
+  .url-row{display:flex;gap:8px;margin-top:14px;}
+  .url-row input[type=text]{
+    flex:1;
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    color:var(--text);
+    font-size:0.88rem;
+    border-radius:6px;
+    padding:10px 12px;
+  }
+  .url-row input[type=text]:focus{outline:2px solid var(--accent);outline-offset:1px;}
+
+  button{
+    font-family:var(--sans);
+    font-size:0.9rem;
+    border-radius:6px;
+    border:1px solid transparent;
+    padding:11px 18px;
+    cursor:pointer;
+  }
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .btn-primary{background:var(--accent);color:#1A0E08;font-weight:600;}
+  .btn-primary:hover{background:#E0632B;}
+  .btn-primary:disabled{background:var(--accent-dim);color:#4a2f24;cursor:not-allowed;}
+  .btn-secondary{background:transparent;color:var(--text);border-color:var(--panel-border);}
+  .btn-secondary:hover{border-color:var(--text-dim);}
+
+  .check-row{margin-top:18px;display:flex;align-items:center;gap:14px;}
+  .progress{color:var(--text-dim);font-size:0.85rem;}
+
+  #error-box{
+    display:none;margin-top:18px;padding:12px 14px;border-radius:6px;
+    background:var(--bad-bg);border:1px solid var(--bad);color:#E8B4AC;font-size:0.88rem;
+  }
+
+  #results{display:none;margin-top:44px;}
+  #results h2{font-family:var(--serif);font-size:1.3rem;margin:0 0 16px;font-weight:600;}
+
+  .banner{
+    border-radius:8px;padding:18px 20px;margin-bottom:20px;
+    font-family:var(--serif);font-size:1.15rem;font-weight:600;
+  }
+  .banner.legal{background:var(--good-bg);color:#9FD1A9;border:1px solid var(--good);}
+  .banner.illegal{background:var(--bad-bg);color:#E8B4AC;border:1px solid var(--bad);}
+
+  .criteria{list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:9px;}
+  .criteria li{display:flex;gap:10px;align-items:flex-start;font-size:0.92rem;}
+  .mark{flex:0 0 auto;width:18px;text-align:center;font-weight:700;}
+  .mark.ok{color:var(--good);}
+  .mark.no{color:var(--bad);}
+  .crit-text .crit-detail{display:block;color:var(--text-dim);font-size:0.85rem;margin-top:1px;}
+
+  details{background:var(--panel);border:1px solid var(--panel-border);border-radius:6px;padding:2px 16px;margin-bottom:24px;}
+  summary{cursor:pointer;padding:12px 0;font-size:0.88rem;color:var(--text-dim);}
+  table{width:100%;border-collapse:collapse;font-size:0.85rem;margin-bottom:14px;}
+  th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--panel-border);}
+  th{color:var(--text-dim);font-weight:500;font-size:0.78rem;}
+  .rarity-tag{display:inline-flex;align-items:center;gap:6px;}
+  .rarity-tag .gem{width:8px;height:8px;}
+
+  .print-row{margin-top:8px;}
+
+  /* Print pyramid — hidden on screen, shown only when printing */
+  #pyramid-print{display:none;}
+
+  @media print{
+    body > #app{display:none !important;}
+    #pyramid-print{
+      display:flex !important;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      height:100vh;
+      width:100vw;
+      gap:2.2vh;
+    }
+    @page{margin:8mm;}
+    .pyramid-row{display:flex;gap:1.6vw;justify-content:center;}
+    .pyramid-row img{height:27vh;width:auto;border-radius:3.5% / 2.5%;display:block;}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="hero">
+    <div class="gem-stack" aria-hidden="true">
+      <div class="gem-row"><div class="gem myth"></div></div>
+      <div class="gem-row"><div class="gem rare"></div><div class="gem rare"></div></div>
+      <div class="gem-row"><div class="gem unc"></div><div class="gem unc"></div><div class="gem unc"></div></div>
+    </div>
+    <div>
+      <h1>Pyramid Pauper Highlander</h1>
+      <p class="subtitle">Deck legality checker</p>
+    </div>
+  </div>
+
+  <p class="lede">Paste a decklist in Moxfield's export format below. Sideboard and maybeboard entries are ignored automatically. Every card is checked against its lowest-rarity printing on Scryfall, since PPH counts a card at the lowest rarity it has ever been printed at.</p>
+
+  <label for="decklist-input">Decklist</label>
+  <textarea id="decklist-input" placeholder="1 Lightning Bolt&#10;1 Counterspell&#10;1 Brainstorm&#10;...&#10;&#10;Sideboard:&#10;1 Pyroblast"></textarea>
+
+  <div class="url-row">
+    <input type="text" id="moxfield-url" placeholder="Or paste a Moxfield deck URL (best effort — see note if it fails)">
+    <button class="btn-secondary" id="fetch-moxfield-btn" type="button">Fetch</button>
+  </div>
+
+  <div class="check-row">
+    <button class="btn-primary" id="check-btn" type="button">Check legality</button>
+    <span class="progress" id="progress-text"></span>
+  </div>
+
+  <div id="error-box"></div>
+
+  <div id="results">
+    <h2>Deck legality check</h2>
+    <div class="banner" id="banner"></div>
+    <ul class="criteria" id="criteria-list"></ul>
+
+    <details>
+      <summary id="breakdown-summary">Card-by-card rarity breakdown</summary>
+      <table id="breakdown-table">
+        <thead><tr><th>Card</th><th>Qty</th><th>Rarity used</th></tr></thead>
+        <tbody id="breakdown-body"></tbody>
+      </table>
+    </details>
+
+    <div class="print-row" id="print-row" style="display:none;">
+      <button class="btn-primary" id="print-btn" type="button">Print deck pyramid</button>
+    </div>
+  </div>
+</div>
+
+<div id="pyramid-print"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- PPH banlist -------------------------------------------------
+  // Placeholder — fill in with the real PPH filter when ready.
+  // Card names are matched case-insensitively.
+  const BANNED_CARDS = new Set([
+    // "Sol Ring",
+  ].map(s => s.toLowerCase()));
+
+  const RARITY_RANK = { common: 0, uncommon: 1, rare: 2, mythic: 3 };
+
+  const textarea = document.getElementById('decklist-input');
+  const moxfieldUrlInput = document.getElementById('moxfield-url');
+  const fetchMoxfieldBtn = document.getElementById('fetch-moxfield-btn');
+  const checkBtn = document.getElementById('check-btn');
+  const progressText = document.getElementById('progress-text');
+  const errorBox = document.getElementById('error-box');
+  const resultsEl = document.getElementById('results');
+  const bannerEl = document.getElementById('banner');
+  const criteriaList = document.getElementById('criteria-list');
+  const breakdownBody = document.getElementById('breakdown-body');
+  const breakdownSummary = document.getElementById('breakdown-summary');
+  const printRow = document.getElementById('print-row');
+  const printBtn = document.getElementById('print-btn');
+  const pyramidPrint = document.getElementById('pyramid-print');
+
+  function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+
+  function showError(msg){
+    errorBox.textContent = msg;
+    errorBox.style.display = 'block';
+  }
+  function clearError(){
+    errorBox.style.display = 'none';
+    errorBox.textContent = '';
+  }
+
+  // ---- Decklist parsing ---------------------------------------------
+
+  const SIDEBOARD_HEADER_RE = /^(sideboard|maybeboard|maybe\s*board|considering)\s*:?\s*$/i;
+  const CARD_LINE_RE = /^(\d+)x?\s+(.+)$/;
+
+  function cleanCardName(raw){
+    let s = raw.trim();
+    for (let i = 0; i < 3; i++){
+      const before = s;
+      s = s.replace(/\s*\*F\*\s*$/i, '');
+      s = s.replace(/\s*\(F\)\s*$/i, '');
+      s = s.replace(/\s*[\(\[][A-Za-z0-9]{2,6}[\)\]]\s*[A-Za-z0-9★\-†]*\s*$/, '');
+      if (s === before) break;
+    }
+    return s.trim();
+  }
+
+  function parseDecklist(text){
+    const lines = text.split(/\r?\n/);
+    const main = new Map(); // key(lowercase name) -> {name, qty}
+    let inSideboard = false;
+    for (const raw of lines){
+      const line = raw.trim();
+      if (!line) continue;
+      if (SIDEBOARD_HEADER_RE.test(line)){ inSideboard = true; continue; }
+      if (inSideboard) continue;
+      const m = line.match(CARD_LINE_RE);
+      if (!m) continue; // headers like "Deck" or stray text, ignore
+      const qty = parseInt(m[1], 10);
+      const name = cleanCardName(m[2]);
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (main.has(key)) main.get(key).qty += qty;
+      else main.set(key, { name, qty });
+    }
+    return main;
+  }
+
+  // ---- Scryfall lookups -----------------------------------------------
+
+  function bestImageUrl(card){
+    if (card.image_uris) return card.image_uris.normal || card.image_uris.large || card.image_uris.small || null;
+    if (card.card_faces && card.card_faces[0] && card.card_faces[0].image_uris){
+      return card.card_faces[0].image_uris.normal || card.card_faces[0].image_uris.large || null;
+    }
+    return null;
+  }
+
+  function pickLowestPrinting(printings){
+    let usable = printings.filter(c => !c.digital && c.set_type !== 'funny' && c.set_type !== 'memorabilia');
+    if (usable.length === 0) usable = printings;
+    let best = null;
+    for (const c of usable){
+      const rank = RARITY_RANK.hasOwnProperty(c.rarity) ? RARITY_RANK[c.rarity] : 4;
+      if (!best || rank < best.rank) best = { rank, card: c };
+    }
+    return best;
+  }
+
+  async function fetchLowestPrinting(name){
+    try {
+      const searchUrl = 'https://api.scryfall.com/cards/search?q=' +
+        encodeURIComponent('!"' + name + '"') + '&unique=prints&order=released';
+      let resp = await fetch(searchUrl);
+      let data = null;
+
+      if (resp.ok){
+        data = await resp.json();
+      } else {
+        // Fallback for split/MDFC names or minor spelling drift: fuzzy-resolve
+        // the card, then pull every printing from its own prints_search_uri.
+        const namedResp = await fetch('https://api.scryfall.com/cards/named?fuzzy=' + encodeURIComponent(name));
+        if (!namedResp.ok) return { error: 'not_found' };
+        const namedCard = await namedResp.json();
+        await sleep(60);
+        const printsResp = await fetch(namedCard.prints_search_uri);
+        if (!printsResp.ok) return { error: 'not_found' };
+        data = await printsResp.json();
+      }
+
+      if (!data || !data.data || data.data.length === 0) return { error: 'not_found' };
+      const best = pickLowestPrinting(data.data);
+      if (!best) return { error: 'not_found' };
+
+      return {
+        rarity: best.card.rarity,
+        rank: best.rank,
+        image: bestImageUrl(best.card),
+        scryfallName: best.card.name
+      };
+    } catch (e){
+      return { error: 'network_error' };
+    }
+  }
+
+  // ---- Moxfield best-effort fetch ------------------------------------
+
+  fetchMoxfieldBtn.addEventListener('click', async function(){
+    const url = moxfieldUrlInput.value.trim();
+    if (!url) return;
+    const idMatch = url.match(/moxfield\.com\/decks\/([A-Za-z0-9_-]+)/i);
+    if (!idMatch){
+      showError('That doesn\'t look like a Moxfield deck URL. Paste the decklist text instead.');
+      return;
+    }
+    clearError();
+    fetchMoxfieldBtn.disabled = true;
+    fetchMoxfieldBtn.textContent = 'Fetching…';
+    try {
+      const resp = await fetch('https://api.moxfield.com/v2/decks/all/' + idMatch[1]);
+      if (!resp.ok) throw new Error('blocked');
+      const deck = await resp.json();
+      const lines = [];
+      for (const key in deck.mainboard){
+        const entry = deck.mainboard[key];
+        lines.push(entry.quantity + ' ' + entry.card.name);
+      }
+      textarea.value = lines.join('\n');
+    } catch (e){
+      showError('Couldn\'t fetch that deck directly — Moxfield usually blocks browser requests from other sites. Open the deck on Moxfield, use "Export" → copy the list, and paste it into the box above instead.');
+    } finally {
+      fetchMoxfieldBtn.disabled = false;
+      fetchMoxfieldBtn.textContent = 'Fetch';
+    }
+  });
+
+  // ---- Legality check --------------------------------------------------
+
+  checkBtn.addEventListener('click', runCheck);
+
+  async function runCheck(){
+    clearError();
+    resultsEl.style.display = 'none';
+    printRow.style.display = 'none';
+    pyramidPrint.innerHTML = '';
+
+    const main = parseDecklist(textarea.value);
+    if (main.size === 0){
+      showError('No cards found. Paste a decklist with lines like "1 Lightning Bolt".');
+      return;
+    }
+
+    const entries = Array.from(main.values());
+    const totalCards = entries.reduce((s, e) => s + e.qty, 0);
+
+    checkBtn.disabled = true;
+    const results = [];
+    const notFound = [];
+
+    for (let i = 0; i < entries.length; i++){
+      progressText.textContent = 'Checking ' + (i + 1) + ' of ' + entries.length + ' cards…';
+      const entry = entries[i];
+      const r = await fetchLowestPrinting(entry.name);
+      if (r.error) notFound.push(entry.name);
+      else results.push(Object.assign({}, entry, r));
+      await sleep(80);
+    }
+
+    progressText.textContent = '';
+    checkBtn.disabled = false;
+
+    let mythic = 0, rare = 0, uncommon = 0, common = 0;
+    for (const r of results){
+      if (r.rarity === 'mythic') mythic += r.qty;
+      else if (r.rarity === 'rare') rare += r.qty;
+      else if (r.rarity === 'uncommon') uncommon += r.qty;
+      else common += r.qty;
+    }
+
+    const banned = results.filter(r => BANNED_CARDS.has(r.name.toLowerCase()));
+    const nonSingleton = results.filter(r => r.rarity !== 'common' && r.qty > 1);
+
+    const countOk = totalCards === 60;
+    const rarityOk = mythic === 1 && rare === 2 && uncommon === 3;
+    const cleanOk = banned.length === 0 && notFound.length === 0 && nonSingleton.length === 0;
+    const legal = countOk && rarityOk && cleanOk;
+
+    renderResults({
+      totalCards, mythic, rare, uncommon, common,
+      countOk, rarityOk, cleanOk, legal,
+      banned, notFound, nonSingleton, results
+    });
+  }
+
+  function renderResults(s){
+    resultsEl.style.display = 'block';
+
+    bannerEl.className = 'banner ' + (s.legal ? 'legal' : 'illegal');
+    bannerEl.textContent = s.legal ? 'Legal PPH deck' : 'Not a legal PPH deck';
+
+    criteriaList.innerHTML = '';
+    addCriterion(
+      s.countOk,
+      'Exactly 60 cards',
+      s.totalCards + ' card' + (s.totalCards === 1 ? '' : 's') + ' in the main deck.'
+    );
+    addCriterion(
+      s.rarityOk,
+      'Rarity balance: 1 mythic, 2 rare, 3 uncommon',
+      'Found ' + s.mythic + ' mythic, ' + s.rare + ' rare, ' + s.uncommon + ' uncommon, ' + s.common + ' common — using each card\'s lowest available printing.'
+    );
+
+    let cleanDetail = 'No banned cards, unrecognized cards, or singleton violations.';
+    const problems = [];
+    if (s.banned.length) problems.push('banned: ' + s.banned.map(c => c.name).join(', '));
+    if (s.notFound.length) problems.push('not found on Scryfall: ' + s.notFound.join(', '));
+    if (s.nonSingleton.length) problems.push('more than one copy of a non-common: ' + s.nonSingleton.map(c => c.name + ' ×' + c.qty).join(', '));
+    if (problems.length) cleanDetail = problems.join(' — ');
+    addCriterion(s.cleanOk, 'No banned, unrecognized, or non-singleton cards', cleanDetail);
+
+    breakdownBody.innerHTML = '';
+    const sorted = s.results.slice().sort((a, b) => {
+      const rd = b.rank - a.rank;
+      return rd !== 0 ? rd : a.name.localeCompare(b.name);
+    });
+    for (const r of sorted){
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + escapeHtml(r.name) + '</td>' +
+        '<td>' + r.qty + '</td>' +
+        '<td><span class="rarity-tag"><span class="gem ' + rarityClass(r.rarity) + '"></span>' + r.rarity + '</span></td>';
+      breakdownBody.appendChild(tr);
+    }
+    for (const name of s.notFound){
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + escapeHtml(name) + '</td><td>—</td><td style="color:var(--bad);">not found</td>';
+      breakdownBody.appendChild(tr);
+    }
+    breakdownSummary.textContent = 'Card-by-card rarity breakdown (' + s.results.length + ' card' + (s.results.length === 1 ? '' : 's') + ')';
+
+    if (s.legal){
+      printRow.style.display = 'block';
+      buildPyramid(s.results);
+    } else {
+      printRow.style.display = 'none';
+    }
+  }
+
+  function addCriterion(ok, title, detail){
+    const li = document.createElement('li');
+    li.innerHTML =
+      '<span class="mark ' + (ok ? 'ok' : 'no') + '">' + (ok ? '✓' : '✗') + '</span>' +
+      '<span class="crit-text">' + title + '<span class="crit-detail">' + detail + '</span></span>';
+    criteriaList.appendChild(li);
+  }
+
+  function rarityClass(rarity){
+    if (rarity === 'mythic') return 'myth';
+    if (rarity === 'rare') return 'rare';
+    if (rarity === 'uncommon') return 'unc';
+    return 'common';
+  }
+
+  function escapeHtml(str){
+    return str.replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  // ---- Pyramid printing -------------------------------------------------
+
+  function buildPyramid(results){
+    const mythicCards = results.filter(r => r.rarity === 'mythic');
+    const rareCards = results.filter(r => r.rarity === 'rare');
+    const uncommonCards = results.filter(r => r.rarity === 'uncommon');
+
+    function row(cards){
+      const div = document.createElement('div');
+      div.className = 'pyramid-row';
+      for (const c of cards){
+        const img = document.createElement('img');
+        img.src = c.image || '';
+        img.alt = c.name;
+        div.appendChild(img);
+      }
+      return div;
+    }
+
+    pyramidPrint.innerHTML = '';
+    pyramidPrint.appendChild(row(mythicCards));
+    pyramidPrint.appendChild(row(rareCards));
+    pyramidPrint.appendChild(row(uncommonCards));
+  }
+
+  printBtn.addEventListener('click', function(){
+    window.print();
+  });
+
+})();
+</script>
+</body>
+</html>
