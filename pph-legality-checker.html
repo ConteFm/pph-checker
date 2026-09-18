@@ -124,12 +124,23 @@
   .rarity-tag{display:inline-flex;align-items:center;gap:6px;}
   .rarity-tag .gem{width:8px;height:8px;}
 
-  .print-row{margin-top:8px;}
+  .print-row{margin-top:8px;display:flex;gap:10px;align-items:center;}
+  .print-row input[type=text]{
+    flex:1;
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    color:var(--text);
+    font-size:0.88rem;
+    border-radius:6px;
+    padding:10px 12px;
+  }
+  .print-row input[type=text]:focus{outline:2px solid var(--accent);outline-offset:1px;}
 
   /* Print pyramid — hidden on screen, shown only when printing */
   #pyramid-print{display:none;}
 
   @media print{
+    html, body{margin:0 !important;padding:0 !important;height:auto !important;}
     body > #app{display:none !important;}
     #pyramid-print{
       display:flex !important;
@@ -138,11 +149,20 @@
       justify-content:center;
       height:100vh;
       width:100vw;
-      gap:2.2vh;
+      gap:1.8vh;
     }
-    @page{margin:8mm;}
-    .pyramid-row{display:flex;gap:1.6vw;justify-content:center;}
-    .pyramid-row img{height:27vh;width:auto;border-radius:3.5% / 2.5%;display:block;}
+    @page{margin:8mm;size:auto;}
+    #pyramid-title{
+      font-family:'Georgia','Times New Roman',serif;
+      font-size:1.5rem;
+      font-weight:600;
+      color:#1A1A1A;
+      text-align:center;
+      margin-bottom:0.6vh;
+    }
+    .pyramid-row{display:flex;gap:1.4vw;justify-content:center;}
+    .pyramid-row img{height:23vh;width:auto;border-radius:3.5% / 2.5%;display:block;}
+    #pyramid-print.has-title .pyramid-row img{height:20vh;}
   }
 </style>
 </head>
@@ -161,7 +181,7 @@
     </div>
   </div>
 
-  <p class="lede">Paste a decklist in Moxfield's export format below. Sideboard and maybeboard entries are ignored automatically. Every card is checked against its lowest-rarity printing on Scryfall, since PPH counts a card at the lowest rarity it has ever been printed at.</p>
+  <p class="lede">Paste a decklist in Moxfield's export format below. Sideboard and maybeboard entries are ignored automatically. Every card is checked against its lowest legal-format printing on Scryfall, since PPH counts a card at the lowest rarity it has ever been printed at (paper, no promos/funny/Secret-Lair-only cards), and against a banlist.txt file kept alongside this page. When you paste set/collector info (e.g. "1 Lightning Bolt (2X2) 141"), the printed pyramid uses that exact printing's art.</p>
 
   <label for="decklist-input">Decklist</label>
   <textarea id="decklist-input" placeholder="1 Lightning Bolt&#10;1 Counterspell&#10;1 Brainstorm&#10;...&#10;&#10;Sideboard:&#10;1 Pyroblast"></textarea>
@@ -192,6 +212,7 @@
     </details>
 
     <div class="print-row" id="print-row" style="display:none;">
+      <input type="text" id="deck-name-input" placeholder="Deck name (optional)" aria-label="Deck name">
       <button class="btn-primary" id="print-btn" type="button">Print deck pyramid</button>
     </div>
   </div>
@@ -224,6 +245,7 @@
   const breakdownBody = document.getElementById('breakdown-body');
   const breakdownSummary = document.getElementById('breakdown-summary');
   const printRow = document.getElementById('print-row');
+  const deckNameInput = document.getElementById('deck-name-input');
   const printBtn = document.getElementById('print-btn');
   const pyramidPrint = document.getElementById('pyramid-print');
 
@@ -257,21 +279,28 @@
   const SIDEBOARD_HEADER_RE = /^(sideboard|maybeboard|maybe\s*board|considering)\s*:?\s*$/i;
   const CARD_LINE_RE = /^(\d+)x?\s+(.+)$/;
 
-  function cleanCardName(raw){
+  function parseCardEntryText(raw){
     let s = raw.trim();
-    for (let i = 0; i < 3; i++){
+    let set = null, collector = null;
+    for (let i = 0; i < 4; i++){
       const before = s;
-      s = s.replace(/\s*\*F\*\s*$/i, '');
-      s = s.replace(/\s*\(F\)\s*$/i, '');
-      s = s.replace(/\s*[\(\[][A-Za-z0-9]{2,6}[\)\]]\s*[A-Za-z0-9★\-†]*\s*$/, '');
+      let m;
+      if ((m = s.match(/\s*\*F\*\s*$/i))){ s = s.slice(0, m.index); continue; }
+      if ((m = s.match(/\s*\(F\)\s*$/i))){ s = s.slice(0, m.index); continue; }
+      if ((m = s.match(/\s*[\(\[]([A-Za-z0-9]{2,6})[\)\]]\s*([A-Za-z0-9★\-†]*)\s*$/))){
+        set = m[1].toLowerCase();
+        collector = m[2] ? m[2].trim() : null;
+        s = s.slice(0, m.index);
+        continue;
+      }
       if (s === before) break;
     }
-    return s.trim();
+    return { name: s.trim(), set, collector };
   }
 
   function parseDecklist(text){
     const lines = text.split(/\r?\n/);
-    const main = new Map(); // key(normalized lowercase name) -> {name, qty}
+    const main = new Map(); // key(normalized lowercase name) -> {name, qty, set, collector}
     let inSideboard = false;
     for (const raw of lines){
       const line = raw.trim();
@@ -281,16 +310,25 @@
       const m = line.match(CARD_LINE_RE);
       if (!m) continue; // headers like "Deck" or stray text, ignore
       const qty = parseInt(m[1], 10);
-      const name = normalizeName(cleanCardName(m[2]));
+      const parsed = parseCardEntryText(m[2]);
+      const name = normalizeName(parsed.name);
       if (!name) continue;
       const key = name.toLowerCase();
-      if (main.has(key)) main.get(key).qty += qty;
-      else main.set(key, { name, qty });
+      if (main.has(key)){
+        main.get(key).qty += qty;
+      } else {
+        main.set(key, { name, qty, set: parsed.set, collector: parsed.collector });
+      }
     }
     return main;
   }
 
   // ---- Scryfall lookups -----------------------------------------------
+
+  // Every printing considered for rarity/legality must satisfy this filter:
+  // paper, not a Secret Lair reprint (an original SLD card is fine), not the
+  // "extras" set, no playtest/promo/judge/funny/silver-border/acorn cards.
+  const PRINT_LEGALITY_FILTER = 'game:paper (-set:sld OR (set:sld -is:reprint)) -s:slx -is:extra -is:promo -is:judge -is:funny -border:silver -stamp:acorn';
 
   function bestImageUrl(card){
     if (card.image_uris) return card.image_uris.normal || card.image_uris.large || card.image_uris.small || null;
@@ -301,10 +339,8 @@
   }
 
   function pickLowestPrinting(printings){
-    let usable = printings.filter(c => !c.digital && c.set_type !== 'funny' && c.set_type !== 'memorabilia');
-    if (usable.length === 0) usable = printings;
     let best = null;
-    for (const c of usable){
+    for (const c of printings){
       const rank = RARITY_RANK.hasOwnProperty(c.rarity) ? RARITY_RANK[c.rarity] : 4;
       if (!best || rank < best.rank) best = { rank, card: c };
     }
@@ -357,21 +393,20 @@
     try {
       const resolved = await resolveCard(name);
       if (resolved.error) return resolved;
+      if (!resolved.card.oracle_id) return { error: 'not_found', reason: 'This card has no oracle id (unsupported card type).' };
 
       await sleep(120);
-      const printsResp = await scryfallFetch(resolved.card.prints_search_uri);
-      if (!printsResp.ok) return { error: 'api_error', reason: 'Could not load printings (status ' + printsResp.status + ').' };
-      const data = await printsResp.json();
-
-      if (!data || !data.data || data.data.length === 0) return { error: 'not_found', reason: 'No printings returned.' };
-      const best = pickLowestPrinting(data.data);
+      const prints = await fetchPrintsForOracleIds([resolved.card.oracle_id]);
+      if (!prints.length) return { error: 'illegal_printing', reason: 'No printing of this card satisfies the PPH print-legality filter.' };
+      const best = pickLowestPrinting(prints);
       if (!best) return { error: 'not_found', reason: 'No usable printings.' };
 
       return {
         rarity: best.card.rarity,
         rank: best.rank,
         image: bestImageUrl(best.card),
-        scryfallName: best.card.name
+        scryfallName: best.card.name,
+        oracleId: resolved.card.oracle_id
       };
     } catch (e){
       return { error: 'network_error', reason: (e && e.message) || 'Network error.' };
@@ -421,12 +456,13 @@
     const chunks = chunkArray(oracleIds, 20);
     for (let i = 0; i < chunks.length; i++){
       if (i > 0) await sleep(150);
-      const query = '(' + chunks[i].map(id => 'oracleid:' + id).join(' or ') + ')';
+      const query = '(' + chunks[i].map(id => 'oracleid:' + id).join(' or ') + ') ' + PRINT_LEGALITY_FILTER;
       let url = 'https://api.scryfall.com/cards/search?q=' + encodeURIComponent(query) + '&unique=prints&order=released';
       let guard = 0;
       while (url && guard < 20){
         guard++;
         const resp = await scryfallFetch(url);
+        if (resp.status === 404) break; // zero matches for this chunk's filter — not an error
         if (!resp.ok) break;
         const data = await resp.json();
         if (data.data) all.push(...data.data);
@@ -435,6 +471,22 @@
       }
     }
     return all;
+  }
+
+  // Fetches one exact printing (the specific set + collector number a
+  // decklist line pointed at), for showing the real card art in the
+  // printed pyramid rather than whichever printing rarity checking used.
+  async function fetchExactPrinting(set, collector){
+    if (!set || !collector) return null;
+    try {
+      const url = 'https://api.scryfall.com/cards/' + encodeURIComponent(set) + '/' + encodeURIComponent(collector);
+      const resp = await scryfallFetch(url);
+      if (!resp.ok) return null;
+      const card = await resp.json();
+      return bestImageUrl(card);
+    } catch (e){
+      return null;
+    }
   }
 
   // Correlates a Scryfall-matched card back to the entry key(s) it could
@@ -446,6 +498,25 @@
       keys.push(card.name.split(' // ')[0].trim().toLowerCase());
     }
     return keys;
+  }
+
+  // ---- PPH banlist (banlist.txt, next to this file) ---------------------
+
+  async function fetchBanlist(){
+    try {
+      const resp = await fetch('banlist.txt', { cache: 'no-store' });
+      if (!resp.ok) return { list: new Set(), warning: 'banlist.txt not found (status ' + resp.status + ') — banned-card check was skipped.' };
+      const text = await resp.text();
+      const list = new Set(
+        text.split(/\r?\n/)
+          .map(l => l.trim())
+          .filter(l => l && !l.startsWith('#'))
+          .map(l => l.toLowerCase())
+      );
+      return { list, warning: null };
+    } catch (e){
+      return { list: new Set(), warning: 'Could not load banlist.txt — banned-card check was skipped.' };
+    }
   }
 
   // ---- Moxfield best-effort fetch ------------------------------------
@@ -518,6 +589,11 @@
     checkBtn.disabled = true;
     const results = [];
     const notFound = [];
+    const illegalPrinting = [];
+
+    progressText.textContent = 'Loading banlist…';
+    const banlistResult = await fetchBanlist();
+    const effectiveBanlist = new Set([...BANNED_CARDS, ...banlistResult.list]);
 
     // Phase 1: resolve all names in bulk (a handful of requests total).
     progressText.textContent = 'Looking up ' + entries.length + ' cards…';
@@ -536,14 +612,17 @@
       }
     }
 
-    // Phase 2: pull every printing of every matched card in one/few batched
-    // searches by oracle ID, then keep the lowest-rarity printing of each.
+    // Phase 2: pull every legal-format printing of every matched card in
+    // one/few batched searches by oracle ID, then keep the lowest-rarity
+    // one of each. A card with zero results here has real printings, but
+    // none of them satisfy the PPH print-legality filter (e.g. it only
+    // exists as a promo, a funny/Un-set card, or a Secret-Lair-only drop).
     const oracleIds = Array.from(new Set(Array.from(cardByKey.values())
       .map(c => c.oracle_id)
       .filter(Boolean)));
     const lowestByOracleId = new Map();
     if (oracleIds.length){
-      progressText.textContent = 'Checking rarities across all printings…';
+      progressText.textContent = 'Checking rarities and legal printings…';
       const allPrints = await fetchPrintsForOracleIds(oracleIds);
       const byOracle = new Map();
       for (const c of allPrints){
@@ -559,23 +638,21 @@
 
     for (const [key, card] of cardByKey){
       const entry = entryByKey.get(key);
-      const best = card.oracle_id ? lowestByOracleId.get(card.oracle_id) : null;
+      if (!card.oracle_id){
+        notFound.push({ name: entry.name, reason: 'This card has no oracle id (unsupported card type).' });
+        continue;
+      }
+      const best = lowestByOracleId.get(card.oracle_id);
       if (best){
         results.push(Object.assign({}, entry, {
           rarity: best.card.rarity,
           rank: best.rank,
           image: bestImageUrl(best.card),
-          scryfallName: best.card.name
+          scryfallName: best.card.name,
+          oracleId: card.oracle_id
         }));
       } else {
-        // Fell through without a batched-prints match (unusual) — use the
-        // card Scryfall matched directly rather than dropping it.
-        results.push(Object.assign({}, entry, {
-          rarity: card.rarity,
-          rank: RARITY_RANK.hasOwnProperty(card.rarity) ? RARITY_RANK[card.rarity] : 4,
-          image: bestImageUrl(card),
-          scryfallName: card.name
-        }));
+        illegalPrinting.push({ name: entry.name, reason: 'No printing of this card satisfies the PPH print-legality filter (paper only, no promos/funny/Secret-Lair-only/etc.).' });
       }
     }
 
@@ -587,7 +664,8 @@
       const entry = entryByKey.get(stragglerKeys[i]);
       progressText.textContent = 'Double-checking ' + entry.name + ' (' + (i + 1) + ' of ' + stragglerKeys.length + ')…';
       const r = await fetchLowestPrinting(entry.name);
-      if (r.error) notFound.push({ name: entry.name, reason: r.reason || r.error });
+      if (r.error === 'illegal_printing') illegalPrinting.push({ name: entry.name, reason: r.reason });
+      else if (r.error) notFound.push({ name: entry.name, reason: r.reason || r.error });
       else results.push(Object.assign({}, entry, r));
       await sleep(150);
     }
@@ -603,18 +681,19 @@
       else common += r.qty;
     }
 
-    const banned = results.filter(r => BANNED_CARDS.has(r.name.toLowerCase()));
+    const banned = results.filter(r => effectiveBanlist.has(r.name.toLowerCase()) || effectiveBanlist.has(r.scryfallName.toLowerCase()));
     const nonSingleton = results.filter(r => r.rarity !== 'common' && r.qty > 1);
 
     const countOk = totalCards === 60;
     const rarityOk = mythic === 1 && rare === 2 && uncommon === 3;
-    const cleanOk = banned.length === 0 && notFound.length === 0 && nonSingleton.length === 0;
+    const cleanOk = banned.length === 0 && notFound.length === 0 && illegalPrinting.length === 0 && nonSingleton.length === 0;
     const legal = countOk && rarityOk && cleanOk;
 
     renderResults({
       totalCards, mythic, rare, uncommon, common,
       countOk, rarityOk, cleanOk, legal,
-      banned, notFound, nonSingleton, results
+      banned, notFound, illegalPrinting, nonSingleton, results,
+      banlistWarning: banlistResult.warning
     });
   }
 
@@ -636,13 +715,15 @@
       'Found ' + s.mythic + ' mythic, ' + s.rare + ' rare, ' + s.uncommon + ' uncommon, ' + s.common + ' common — using each card\'s lowest available printing.'
     );
 
-    let cleanDetail = 'No banned cards, unrecognized cards, or singleton violations.';
+    let cleanDetail = 'No banned cards, unrecognized cards, illegal printings, or singleton violations.';
     const problems = [];
     if (s.banned.length) problems.push('banned: ' + s.banned.map(c => c.name).join(', '));
     if (s.notFound.length) problems.push('not found on Scryfall: ' + s.notFound.map(n => n.name).join(', '));
+    if (s.illegalPrinting.length) problems.push('no legal printing: ' + s.illegalPrinting.map(n => n.name).join(', '));
     if (s.nonSingleton.length) problems.push('more than one copy of a non-common: ' + s.nonSingleton.map(c => c.name + ' ×' + c.qty).join(', '));
     if (problems.length) cleanDetail = problems.join(' — ');
-    addCriterion(s.cleanOk, 'No banned, unrecognized, or non-singleton cards', cleanDetail);
+    if (s.banlistWarning) cleanDetail += (problems.length ? ' — ' : ' ') + '⚠ ' + s.banlistWarning;
+    addCriterion(s.cleanOk, 'No banned, unrecognized, illegal-printing, or non-singleton cards', cleanDetail);
 
     breakdownBody.innerHTML = '';
     const sorted = s.results.slice().sort((a, b) => {
@@ -657,6 +738,12 @@
         '<td><span class="rarity-tag"><span class="gem ' + rarityClass(r.rarity) + '"></span>' + r.rarity + '</span></td>';
       breakdownBody.appendChild(tr);
     }
+    for (const item of s.illegalPrinting){
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + escapeHtml(item.name) + '</td><td>—</td>' +
+        '<td style="color:var(--bad);" title="' + escapeHtml(item.reason || '') + '">no legal printing</td>';
+      breakdownBody.appendChild(tr);
+    }
     for (const item of s.notFound){
       const tr = document.createElement('tr');
       tr.innerHTML = '<td>' + escapeHtml(item.name) + '</td><td>—</td>' +
@@ -666,10 +753,11 @@
     breakdownSummary.textContent = 'Card-by-card rarity breakdown (' + s.results.length + ' card' + (s.results.length === 1 ? '' : 's') + ')';
 
     if (s.legal){
-      printRow.style.display = 'block';
-      buildPyramid(s.results);
+      printRow.style.display = 'flex';
+      lastLegalResults = s.results;
     } else {
       printRow.style.display = 'none';
+      lastLegalResults = null;
     }
   }
 
@@ -696,17 +784,28 @@
 
   // ---- Pyramid printing -------------------------------------------------
 
-  function buildPyramid(results){
+  let lastLegalResults = null;
+
+  async function buildPyramid(results, deckName){
     const mythicCards = results.filter(r => r.rarity === 'mythic');
     const rareCards = results.filter(r => r.rarity === 'rare');
     const uncommonCards = results.filter(r => r.rarity === 'uncommon');
+    const allCards = mythicCards.concat(rareCards, uncommonCards);
+
+    // Prefer the exact printing named in the decklist (set + collector
+    // number) for the card art; fall back to the lowest-rarity printing
+    // used for legality if no specific printing was given.
+    for (const c of allCards){
+      c.displayImage = (await fetchExactPrinting(c.set, c.collector)) || c.image;
+      await sleep(90);
+    }
 
     function row(cards){
       const div = document.createElement('div');
       div.className = 'pyramid-row';
       for (const c of cards){
         const img = document.createElement('img');
-        img.src = c.image || '';
+        img.src = c.displayImage || '';
         img.alt = c.name;
         div.appendChild(img);
       }
@@ -714,13 +813,32 @@
     }
 
     pyramidPrint.innerHTML = '';
+    pyramidPrint.classList.toggle('has-title', !!deckName);
+
+    if (deckName){
+      const title = document.createElement('div');
+      title.id = 'pyramid-title';
+      title.textContent = deckName;
+      pyramidPrint.appendChild(title);
+    }
+
     pyramidPrint.appendChild(row(mythicCards));
     pyramidPrint.appendChild(row(rareCards));
     pyramidPrint.appendChild(row(uncommonCards));
   }
 
-  printBtn.addEventListener('click', function(){
-    window.print();
+  printBtn.addEventListener('click', async function(){
+    if (!lastLegalResults) return;
+    printBtn.disabled = true;
+    const originalLabel = printBtn.textContent;
+    printBtn.textContent = 'Preparing…';
+    try {
+      await buildPyramid(lastLegalResults, deckNameInput.value.trim());
+      window.print();
+    } finally {
+      printBtn.disabled = false;
+      printBtn.textContent = originalLabel;
+    }
   });
 
 })();
