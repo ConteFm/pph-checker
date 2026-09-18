@@ -231,14 +231,14 @@
 
   // Wrapper around fetch that respects Scryfall's rate limiting: on a 429
   // (or a transient 5xx), wait and retry with backoff instead of giving up.
-  async function scryfallFetch(url, attempt){
+  async function scryfallFetch(url, options, attempt){
     attempt = attempt || 0;
-    const resp = await fetch(url);
+    const resp = await fetch(url, options);
     if ((resp.status === 429 || resp.status >= 500) && attempt < 4){
       const retryAfterHeader = parseFloat(resp.headers.get('Retry-After'));
       const waitMs = !isNaN(retryAfterHeader) ? retryAfterHeader * 1000 : 400 * Math.pow(2, attempt);
       await sleep(waitMs);
-      return scryfallFetch(url, attempt + 1);
+      return scryfallFetch(url, options, attempt + 1);
     }
     return resp;
   }
@@ -271,7 +271,7 @@
 
   function parseDecklist(text){
     const lines = text.split(/\r?\n/);
-    const main = new Map(); // key(lowercase name) -> {name, qty}
+    const main = new Map(); // key(normalized lowercase name) -> {name, qty}
     let inSideboard = false;
     for (const raw of lines){
       const line = raw.trim();
@@ -281,7 +281,7 @@
       const m = line.match(CARD_LINE_RE);
       if (!m) continue; // headers like "Deck" or stray text, ignore
       const qty = parseInt(m[1], 10);
-      const name = cleanCardName(m[2]);
+      const name = normalizeName(cleanCardName(m[2]));
       if (!name) continue;
       const key = name.toLowerCase();
       if (main.has(key)) main.get(key).qty += qty;
@@ -318,6 +318,12 @@
       .replace(/[\u2013\u2014]/g, '-')   // en/em dash -> hyphen
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function chunkArray(arr, size){
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
   }
 
   async function safeErrorDetail(resp){
@@ -370,6 +376,76 @@
     } catch (e){
       return { error: 'network_error', reason: (e && e.message) || 'Network error.' };
     }
+  }
+
+  // ---- Bulk lookup ------------------------------------------------------
+  // A 60-card deck can easily have 40+ unique cards, and looking each one
+  // up individually (1-2 requests apiece) is what was tripping Scryfall's
+  // rate limiting. These two calls resolve the whole deck in a handful of
+  // requests instead: one batch call to match names -> cards, then one (or
+  // a few, paginated) search to pull every printing of every matched card
+  // at once via their oracle IDs.
+
+  async function resolveNamesBulk(names){
+    const matched = [];   // Scryfall card objects, one per matched name
+    const notFound = [];  // names Scryfall's collection endpoint couldn't match
+    const chunks = chunkArray(names, 75);
+    for (let i = 0; i < chunks.length; i++){
+      if (i > 0) await sleep(150);
+      try {
+        const resp = await scryfallFetch('https://api.scryfall.com/cards/collection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifiers: chunks[i].map(n => ({ name: n })) })
+        });
+        if (!resp.ok){
+          notFound.push(...chunks[i]);
+          continue;
+        }
+        const data = await resp.json();
+        if (data.data) matched.push(...data.data);
+        if (data.not_found){
+          for (const ident of data.not_found){
+            if (ident && ident.name) notFound.push(ident.name);
+          }
+        }
+      } catch (e){
+        notFound.push(...chunks[i]);
+      }
+    }
+    return { matched, notFound };
+  }
+
+  async function fetchPrintsForOracleIds(oracleIds){
+    const all = [];
+    const chunks = chunkArray(oracleIds, 20);
+    for (let i = 0; i < chunks.length; i++){
+      if (i > 0) await sleep(150);
+      const query = '(' + chunks[i].map(id => 'oracleid:' + id).join(' or ') + ')';
+      let url = 'https://api.scryfall.com/cards/search?q=' + encodeURIComponent(query) + '&unique=prints&order=released';
+      let guard = 0;
+      while (url && guard < 20){
+        guard++;
+        const resp = await scryfallFetch(url);
+        if (!resp.ok) break;
+        const data = await resp.json();
+        if (data.data) all.push(...data.data);
+        url = data.has_more ? data.next_page : null;
+        if (url) await sleep(150);
+      }
+    }
+    return all;
+  }
+
+  // Correlates a Scryfall-matched card back to the entry key(s) it could
+  // have come from — handles split/adventure cards whose full name
+  // ("Front // Back") doesn't match the front-face name a user pasted.
+  function candidateKeysForCard(card){
+    const keys = [card.name.toLowerCase()];
+    if (card.name.indexOf(' // ') !== -1){
+      keys.push(card.name.split(' // ')[0].trim().toLowerCase());
+    }
+    return keys;
   }
 
   // ---- Moxfield best-effort fetch ------------------------------------
@@ -443,9 +519,73 @@
     const results = [];
     const notFound = [];
 
-    for (let i = 0; i < entries.length; i++){
-      progressText.textContent = 'Checking ' + (i + 1) + ' of ' + entries.length + ' cards…';
-      const entry = entries[i];
+    // Phase 1: resolve all names in bulk (a handful of requests total).
+    progressText.textContent = 'Looking up ' + entries.length + ' cards…';
+    const entryByKey = new Map(entries.map(e => [e.name.toLowerCase(), e]));
+    const unmatchedKeys = new Set(entryByKey.keys());
+    const cardByKey = new Map(); // entry key -> matched Scryfall card
+
+    const { matched, notFound: bulkNotFound } = await resolveNamesBulk(entries.map(e => e.name));
+    for (const card of matched){
+      for (const key of candidateKeysForCard(card)){
+        if (unmatchedKeys.has(key) && !cardByKey.has(key)){
+          cardByKey.set(key, card);
+          unmatchedKeys.delete(key);
+          break;
+        }
+      }
+    }
+
+    // Phase 2: pull every printing of every matched card in one/few batched
+    // searches by oracle ID, then keep the lowest-rarity printing of each.
+    const oracleIds = Array.from(new Set(Array.from(cardByKey.values())
+      .map(c => c.oracle_id)
+      .filter(Boolean)));
+    const lowestByOracleId = new Map();
+    if (oracleIds.length){
+      progressText.textContent = 'Checking rarities across all printings…';
+      const allPrints = await fetchPrintsForOracleIds(oracleIds);
+      const byOracle = new Map();
+      for (const c of allPrints){
+        if (!c.oracle_id) continue;
+        if (!byOracle.has(c.oracle_id)) byOracle.set(c.oracle_id, []);
+        byOracle.get(c.oracle_id).push(c);
+      }
+      for (const [oid, prints] of byOracle){
+        const best = pickLowestPrinting(prints);
+        if (best) lowestByOracleId.set(oid, best);
+      }
+    }
+
+    for (const [key, card] of cardByKey){
+      const entry = entryByKey.get(key);
+      const best = card.oracle_id ? lowestByOracleId.get(card.oracle_id) : null;
+      if (best){
+        results.push(Object.assign({}, entry, {
+          rarity: best.card.rarity,
+          rank: best.rank,
+          image: bestImageUrl(best.card),
+          scryfallName: best.card.name
+        }));
+      } else {
+        // Fell through without a batched-prints match (unusual) — use the
+        // card Scryfall matched directly rather than dropping it.
+        results.push(Object.assign({}, entry, {
+          rarity: card.rarity,
+          rank: RARITY_RANK.hasOwnProperty(card.rarity) ? RARITY_RANK[card.rarity] : 4,
+          image: bestImageUrl(card),
+          scryfallName: card.name
+        }));
+      }
+    }
+
+    // Phase 3: anything the bulk pass couldn't match (typos, truly unknown
+    // names) gets one more try individually, since that path tolerates
+    // fuzzier matching — this list should normally be empty or tiny.
+    const stragglerKeys = Array.from(unmatchedKeys);
+    for (let i = 0; i < stragglerKeys.length; i++){
+      const entry = entryByKey.get(stragglerKeys[i]);
+      progressText.textContent = 'Double-checking ' + entry.name + ' (' + (i + 1) + ' of ' + stragglerKeys.length + ')…';
       const r = await fetchLowestPrinting(entry.name);
       if (r.error) notFound.push({ name: entry.name, reason: r.reason || r.error });
       else results.push(Object.assign({}, entry, r));
