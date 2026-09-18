@@ -325,10 +325,34 @@
 
   // ---- Scryfall lookups -----------------------------------------------
 
-  // Every printing considered for rarity/legality must satisfy this filter:
-  // paper, not a Secret Lair reprint (an original SLD card is fine), not the
-  // "extras" set, no playtest/promo/judge/funny/silver-border/acorn cards.
-  const PRINT_LEGALITY_FILTER = 'game:paper (-set:sld OR (set:sld -is:reprint)) -s:slx -is:extra -is:promo -is:judge -is:funny -border:silver -stamp:acorn';
+  // Every printing considered for rarity/legality must satisfy this filter
+  // (equivalent to the Scryfall search: game:paper (-set:sld OR (set:sld
+  // -is:reprint)) -s:slx -is:extra -is:promo -is:judge -is:funny
+  // -border:silver -stamp:acorn). Implemented client-side against fields
+  // already present on each printing we fetch, rather than as one giant
+  // compound query — a 20-oracle-id OR combined with this whole filter was
+  // silently coming back empty (likely a query-length/complexity limit on
+  // Scryfall's end), which made every card in a batch look "illegal" at
+  // once instead of flagging a specific one.
+  function isLegalPrinting(card){
+    if (!card.games || card.games.indexOf('paper') === -1) return false;          // game:paper
+    if (card.set === 'sld' && card.reprint) return false;                          // -set:sld OR (set:sld -is:reprint)
+    if (card.set === 'slx') return false;                                         // -s:slx
+    if (isExtraCard(card)) return false;                                          // -is:extra
+    if (card.promo) return false;                                                 // -is:promo
+    if (card.promo_types && card.promo_types.indexOf('judgegift') !== -1) return false; // -is:judge
+    if (card.set_type === 'funny') return false;                                  // -is:funny
+    if (card.border_color === 'silver') return false;                             // -border:silver
+    if (card.security_stamp === 'acorn') return false;                            // -stamp:acorn
+    return true;
+  }
+
+  function isExtraCard(card){
+    const extraLayouts = ['token', 'emblem', 'art_series', 'double_faced_token', 'scheme', 'vanguard', 'planar'];
+    if (card.layout && extraLayouts.indexOf(card.layout) !== -1) return true;
+    if (card.set_type === 'memorabilia' || card.set_type === 'token') return true;
+    return false;
+  }
 
   function bestImageUrl(card){
     if (card.image_uris) return card.image_uris.normal || card.image_uris.large || card.image_uris.small || null;
@@ -456,13 +480,13 @@
     const chunks = chunkArray(oracleIds, 20);
     for (let i = 0; i < chunks.length; i++){
       if (i > 0) await sleep(150);
-      const query = '(' + chunks[i].map(id => 'oracleid:' + id).join(' or ') + ') ' + PRINT_LEGALITY_FILTER;
+      const query = '(' + chunks[i].map(id => 'oracleid:' + id).join(' or ') + ')';
       let url = 'https://api.scryfall.com/cards/search?q=' + encodeURIComponent(query) + '&unique=prints&order=released';
       let guard = 0;
       while (url && guard < 20){
         guard++;
         const resp = await scryfallFetch(url);
-        if (resp.status === 404) break; // zero matches for this chunk's filter — not an error
+        if (resp.status === 404) break; // zero prints at all for this chunk — not an error
         if (!resp.ok) break;
         const data = await resp.json();
         if (data.data) all.push(...data.data);
@@ -470,7 +494,7 @@
         if (url) await sleep(150);
       }
     }
-    return all;
+    return all.filter(isLegalPrinting);
   }
 
   // Fetches one exact printing (the specific set + collector number a
