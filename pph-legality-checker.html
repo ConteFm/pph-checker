@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PPH — Deck Legality Checker</title>
 <style>
+  @font-face{
+    font-family:'Beleren';
+    src:url('Beleren-Bold.woff2') format('woff2'),
+        url('Beleren-Bold.woff') format('woff'),
+        url('Beleren-Bold.ttf') format('truetype');
+    font-weight:600;
+    font-display:swap;
+  }
+
   :root{
     --bg:#14120F;
     --panel:#1D1A15;
@@ -21,6 +30,7 @@
     --good-bg:#1B2A1D;
     --bad:#C15B4E;
     --bad-bg:#2A1917;
+    --title-font: 'Beleren', Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
     --serif: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
     --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   }
@@ -35,20 +45,16 @@
   }
   #app{max-width:640px;margin:0 auto;}
 
-  .hero{display:flex;align-items:center;gap:22px;margin-bottom:8px;}
-  .gem-stack{display:flex;flex-direction:column;align-items:center;gap:5px;flex:0 0 auto;}
-  .gem-row{display:flex;gap:5px;}
-  .gem{width:9px;height:9px;border-radius:50%;}
-  .gem.myth{background:var(--mythic);}
-  .gem.rare{background:var(--rare);}
-  .gem.unc{background:var(--uncommon);}
+  .hero{display:flex;align-items:center;gap:18px;margin-bottom:8px;}
+  .logo{width:52px;height:52px;object-fit:contain;flex:0 0 auto;}
 
-  h1{font-family:var(--serif);font-size:2rem;font-weight:600;margin:0;letter-spacing:0.2px;}
+  h1{font-family:var(--title-font);font-size:2.1rem;font-weight:600;margin:0;letter-spacing:0.3px;}
   .subtitle{color:var(--text-dim);font-size:0.95rem;margin:4px 0 0;}
 
   .lede{color:var(--text-dim);font-size:0.92rem;margin:22px 0 28px;max-width:56ch;}
 
   label{display:block;font-size:0.85rem;color:var(--text-dim);margin-bottom:6px;}
+  label .hint{font-weight:400;color:var(--text-dim);opacity:0.75;}
 
   textarea{
     width:100%;
@@ -63,18 +69,6 @@
     resize:vertical;
   }
   textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
-
-  .url-row{display:flex;gap:8px;margin-top:14px;}
-  .url-row input[type=text]{
-    flex:1;
-    background:var(--panel);
-    border:1px solid var(--panel-border);
-    color:var(--text);
-    font-size:0.88rem;
-    border-radius:6px;
-    padding:10px 12px;
-  }
-  .url-row input[type=text]:focus{outline:2px solid var(--accent);outline-offset:1px;}
 
   button{
     font-family:var(--sans);
@@ -122,7 +116,11 @@
   th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--panel-border);}
   th{color:var(--text-dim);font-weight:500;font-size:0.78rem;}
   .rarity-tag{display:inline-flex;align-items:center;gap:6px;}
-  .rarity-tag .gem{width:8px;height:8px;}
+  .gem{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .gem.myth{background:var(--mythic);}
+  .gem.rare{background:var(--rare);}
+  .gem.unc{background:var(--uncommon);}
+  .gem.common{background:var(--common);}
 
   .print-row{margin-top:8px;display:flex;gap:10px;align-items:center;}
   .print-row input[type=text]{
@@ -153,7 +151,7 @@
     }
     @page{margin:8mm;size:auto;}
     #pyramid-title{
-      font-family:'Georgia','Times New Roman',serif;
+      font-family:var(--title-font);
       font-size:1.5rem;
       font-weight:600;
       color:#1A1A1A;
@@ -170,26 +168,17 @@
 
 <div id="app">
   <div class="hero">
-    <div class="gem-stack" aria-hidden="true">
-      <div class="gem-row"><div class="gem myth"></div></div>
-      <div class="gem-row"><div class="gem rare"></div><div class="gem rare"></div></div>
-      <div class="gem-row"><div class="gem unc"></div><div class="gem unc"></div><div class="gem unc"></div></div>
-    </div>
+    <img src="logo.png" alt="PPH logo" class="logo">
     <div>
       <h1>Pyramid Pauper Highlander</h1>
       <p class="subtitle">Deck legality checker</p>
     </div>
   </div>
 
-  <p class="lede">Paste a decklist in Moxfield's export format below. Sideboard and maybeboard entries are ignored automatically. Every card is checked against its lowest legal-format printing on Scryfall, since PPH counts a card at the lowest rarity it has ever been printed at (paper, no promos/funny/Secret-Lair-only cards), and against a banlist.txt file kept alongside this page. When you paste set/collector info (e.g. "1 Lightning Bolt (2X2) 141"), the printed pyramid uses that exact printing's art.</p>
+  <p class="lede">Paste your decklist below to perform a legality check and print your pyramid.</p>
 
-  <label for="decklist-input">Decklist</label>
+  <label for="decklist-input">Decklist <span class="hint">(use Moxfield format for best results)</span></label>
   <textarea id="decklist-input" placeholder="1 Lightning Bolt&#10;1 Counterspell&#10;1 Brainstorm&#10;...&#10;&#10;Sideboard:&#10;1 Pyroblast"></textarea>
-
-  <div class="url-row">
-    <input type="text" id="moxfield-url" placeholder="Or paste a Moxfield deck URL (best effort — see note if it fails)">
-    <button class="btn-secondary" id="fetch-moxfield-btn" type="button">Fetch</button>
-  </div>
 
   <div class="check-row">
     <button class="btn-primary" id="check-btn" type="button">Check legality</button>
@@ -234,8 +223,6 @@
   const RARITY_RANK = { common: 0, uncommon: 1, rare: 2, mythic: 3 };
 
   const textarea = document.getElementById('decklist-input');
-  const moxfieldUrlInput = document.getElementById('moxfield-url');
-  const fetchMoxfieldBtn = document.getElementById('fetch-moxfield-btn');
   const checkBtn = document.getElementById('check-btn');
   const progressText = document.getElementById('progress-text');
   const errorBox = document.getElementById('error-box');
@@ -542,37 +529,6 @@
       return { list: new Set(), warning: 'Could not load banlist.txt — banned-card check was skipped.' };
     }
   }
-
-  // ---- Moxfield best-effort fetch ------------------------------------
-
-  fetchMoxfieldBtn.addEventListener('click', async function(){
-    const url = moxfieldUrlInput.value.trim();
-    if (!url) return;
-    const idMatch = url.match(/moxfield\.com\/decks\/([A-Za-z0-9_-]+)/i);
-    if (!idMatch){
-      showError('That doesn\'t look like a Moxfield deck URL. Paste the decklist text instead.');
-      return;
-    }
-    clearError();
-    fetchMoxfieldBtn.disabled = true;
-    fetchMoxfieldBtn.textContent = 'Fetching…';
-    try {
-      const resp = await fetch('https://api.moxfield.com/v2/decks/all/' + idMatch[1]);
-      if (!resp.ok) throw new Error('blocked');
-      const deck = await resp.json();
-      const lines = [];
-      for (const key in deck.mainboard){
-        const entry = deck.mainboard[key];
-        lines.push(entry.quantity + ' ' + entry.card.name);
-      }
-      textarea.value = lines.join('\n');
-    } catch (e){
-      showError('Couldn\'t fetch that deck directly — Moxfield usually blocks browser requests from other sites. Open the deck on Moxfield, use "Export" → copy the list, and paste it into the box above instead.');
-    } finally {
-      fetchMoxfieldBtn.disabled = false;
-      fetchMoxfieldBtn.textContent = 'Fetch';
-    }
-  });
 
   // ---- Legality check --------------------------------------------------
 
